@@ -10,6 +10,45 @@ class ChatGPTService {
     private val apiKey = Config.OPENAI_API_KEY
     private val apiUrl = "https://api.openai.com/v1/chat/completions"
 
+    suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(apiUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            connection.doOutput = true
+
+            val messages = org.json.JSONArray().apply {
+                put(org.json.JSONObject().apply {
+                    put("role", "user")
+                    put("content", "Say hello")
+                })
+            }
+
+            val requestBody = org.json.JSONObject().apply {
+                put("model", "gpt-3.5-turbo")
+                put("messages", messages)
+                put("temperature", 0.1)
+                put("max_tokens", 10)
+            }.toString()
+
+            android.util.Log.d("ChatGPT", "Test request: $requestBody")
+
+            connection.outputStream.use { os ->
+                os.write(requestBody.toByteArray())
+                os.flush()
+            }
+
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            android.util.Log.d("ChatGPT", "Test response: $response")
+            return@withContext true
+        } catch (e: Exception) {
+            android.util.Log.e("ChatGPT", "Test connection failed", e)
+            return@withContext false
+        }
+    }
+
     suspend fun processReceiptText(ocrText: String): ExpenseDetails = withContext(Dispatchers.IO) {
         try {
             val prompt = """
@@ -51,19 +90,25 @@ class ChatGPTService {
             connection.setRequestProperty("Authorization", "Bearer $apiKey")
             connection.doOutput = true
 
-            val requestBody = JSONObject().apply {
-                put("model", "gpt-3.5-turbo")
-                put("messages", JSONObject().apply {
+            val messages = org.json.JSONArray().apply {
+                put(JSONObject().apply {
                     put("role", "system")
                     put("content", "You are a precise receipt analysis expert. Extract information accurately and respond only with JSON.")
                 })
-                put("messages", JSONObject().apply {
+                put(JSONObject().apply {
                     put("role", "user")
                     put("content", prompt)
                 })
+            }
+
+            val requestBody = JSONObject().apply {
+                put("model", "gpt-3.5-turbo")
+                put("messages", messages)
                 put("temperature", 0.1) // Lower temperature for more consistent results
                 put("max_tokens", 150) // Limit response length
             }.toString()
+
+            android.util.Log.d("ChatGPT", "Sending request: $requestBody")
 
             connection.outputStream.use { os ->
                 os.write(requestBody.toByteArray())
@@ -71,6 +116,7 @@ class ChatGPTService {
             }
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
+            android.util.Log.d("ChatGPT", "Received response: $response")
             val jsonResponse = JSONObject(response)
             val content = jsonResponse.getJSONArray("choices")
                 .getJSONObject(0)
@@ -98,6 +144,7 @@ class ChatGPTService {
             )
         } catch (e: Exception) {
             e.printStackTrace()
+            android.util.Log.e("ChatGPT", "processReceiptText failed", e)
             ExpenseDetails(0.0, "debit", "", "", "")
         }
     }
